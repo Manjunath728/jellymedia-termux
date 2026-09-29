@@ -1,0 +1,4 @@
+#!/data/data/com.termux/files/usr/bin/bash
+set -e
+mkdir -p "$PREFIX/var/log/sv/jellymedia-mdns"
+exec svlogd "$PREFIX/var/log/sv/jellymedia-mdns"

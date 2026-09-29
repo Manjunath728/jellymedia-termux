@@ -1,0 +1,142 @@
+#!/data/data/com.termux/files/usr/bin/bash
+set -euo pipefail
+
+BASE="${JELLYMEDIA_BASE:-/storage/emulated/0/JellyMedia}"
+MDNS_SCRIPT="${JELLYMEDIA_MDNS_SCRIPT:-$HOME/.jellymedia/jellymedia_mdns.py}"
+
+usage() {
+    cat <<'EOF'
+JellyMedia Termux Toolkit
+
+Usage:
+  jellymedia organize    Organize video files in the JellyMedia root
+  jellymedia mdns        Run the mDNS advertiser in the foreground
+  jellymedia status      Show paths and current LAN IP
+  jellymedia help        Show this help
+EOF
+}
+
+organize() {
+    mkdir -p \
+        "$BASE/Movies" \
+        "$BASE/TV Shows" \
+        "$BASE/Anime" \
+        "$BASE/Anime Movies" \
+        "$BASE/Documentaries" \
+        "$BASE/Kids" \
+        "$BASE/Concerts" \
+        "$BASE/Other"
+
+    shopt -s nocasematch nullglob
+
+    local f name ext original show season episode season_num episode_num
+    local folder new title movie_title year
+
+    for f in "$BASE"/*; do
+        [ -f "$f" ] || continue
+
+        name="${f##*/}"
+        ext="${name##*.}"
+
+        case "${ext,,}" in
+            mkv|mp4|avi|mov|m4v|webm|ts) ;;
+            *) continue ;;
+        esac
+
+        original="$name"
+
+        # Remove the known 1TamilMV-style prefix.
+        name="$(printf '%s' "$name" | sed -E 's/^www\.1TamilMV\.[^[:space:]]+[[:space:]]*-[[:space:]]*//I')"
+        name="$(printf '%s' "$name" | sed -E 's/^[[:space:]]*[-_. ]*//')"
+
+        # TV episode: Show S01E02 / Show.S01E02 / Show - S01E02
+        if [[ "$name" =~ ^(.*[^[:space:]])[._\ -]*S([0-9]{1,2})E([0-9]{1,2}) ]]; then
+            show="${BASH_REMATCH[1]}"
+            season="${BASH_REMATCH[2]}"
+            episode="${BASH_REMATCH[3]}"
+
+            show="$(printf '%s' "$show" | sed -E 's/[._]+/ /g; s/[[:space:]]+$//')"
+            printf -v season_num "%02d" "$((10#$season))"
+            printf -v episode_num "%02d" "$((10#$episode))"
+
+            folder="$BASE/TV Shows/$show/Season $season_num"
+            mkdir -p "$folder"
+            new="$folder/$show S${season_num}E${episode_num}.${ext,,}"
+
+            if [ "$f" != "$new" ]; then
+                if [ -e "$new" ]; then
+                    echo "⚠️  EXISTS: $new"
+                else
+                    echo "📺 $original"
+                    echo "   → $new"
+                    mv -- "$f" "$new"
+                fi
+            fi
+            continue
+        fi
+
+        # Movies: strip extension, common release tags, and normalize separators.
+        title="${name%.*}"
+        title="$(printf '%s' "$title" | sed -E 's/[._]+/ /g')"
+        title="$(printf '%s' "$title" | sed -E \
+            's/[[:space:]]*\[[^]]*\]//g;
+             s/[[:space:]]*\([^)]*(1080p|720p|2160p|4K|WEB|WEBRip|BluRay|HDR|HEVC|x265|x264)[^)]*\)//Ig;
+             s/[[:space:]]+(1080p|720p|2160p|4K|WEB-DL|WEBRip|BluRay|HDR|HEVC|x265|x264|AAC|DDP|DD|EAC3|REMUX).*//Ig;
+             s/[[:space:]]+$//')"
+        title="$(printf '%s' "$title" | sed -E 's/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//')"
+
+        if [[ "$title" =~ ^(.*)[[:space:]]((19|20)[0-9]{2})$ ]]; then
+            movie_title="${BASH_REMATCH[1]}"
+            year="${BASH_REMATCH[2]}"
+            folder="$BASE/Movies/$movie_title ($year)"
+            new="$folder/$movie_title ($year).${ext,,}"
+        else
+            movie_title="$title"
+            folder="$BASE/Movies/$movie_title"
+            new="$folder/$movie_title.${ext,,}"
+        fi
+
+        mkdir -p "$folder"
+
+        if [ -e "$new" ]; then
+            echo "⚠️  EXISTS: $new"
+        else
+            echo "🎬 $original"
+            echo "   → $new"
+            mv -- "$f" "$new"
+        fi
+    done
+
+    echo
+    echo "✅ Organizer finished."
+}
+
+status() {
+    echo "JellyMedia"
+    echo "==========="
+    echo "Base: $BASE"
+
+    if command -v ip >/dev/null 2>&1; then
+        echo "LAN IP(s):"
+        ip -4 addr show wlan0 2>/dev/null | awk '/inet / {print "  " $2}'
+    fi
+
+    echo
+    echo "Jellyfin:"
+    echo "  http://jellyfin.local:8096"
+    echo "  http://$(ip -4 addr show wlan0 2>/dev/null | awk '/inet / {print $2}' | cut -d/ -f1 | head -n1):8096"
+}
+
+case "${1:-help}" in
+    organize) organize ;;
+    mdns)
+        exec python "$MDNS_SCRIPT"
+        ;;
+    status) status ;;
+    help|-h|--help) usage ;;
+    *)
+        echo "Unknown command: $1"
+        usage
+        exit 1
+        ;;
+esac

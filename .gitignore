@@ -1,0 +1,17 @@
+# Android / Termux
+*.log
+__pycache__/
+*.pyc
+
+# Personal media
+*.mkv
+*.mp4
+*.avi
+*.mov
+*.m4v
+*.webm
+*.ts
+
+# Local/private configuration
+.env
+config.local
